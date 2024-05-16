@@ -1,3 +1,8 @@
+"""
+Author: Raghavasimhan Sankaranarayanan
+Date Created: 5/7/24
+"""
+
 import time
 from realsense import RealSenseCamera
 import numpy as np

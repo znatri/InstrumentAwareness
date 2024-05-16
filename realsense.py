@@ -1,3 +1,8 @@
+"""
+Author: Raghavasimhan Sankaranarayanan
+Date Created: 5/7/24
+"""
+
 import pyrealsense2 as rs
 import numpy as np
 
