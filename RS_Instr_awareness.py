@@ -75,9 +75,9 @@ def move_arm(stop_arg, err_arg):
         diff = np.maximum(0, 0.005 - end_time)
         time.sleep(diff)
 
-    # arm.set_mode(0)
-    # arm.set_state(0)
-    # arm.set_position(*initial_pose, speed=100, mvacc=300, wait=True, is_radian=False)
+    arm.set_mode(0)
+    arm.set_state(0)
+    arm.set_position(*initial_pose, speed=100, mvacc=300, wait=True, is_radian=False)
 
 
 manager = Manager()
