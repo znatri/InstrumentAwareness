@@ -12,17 +12,29 @@ from xarm.wrapper import XArmAPI
 from calibrator import Calibrator
 from homographyEstimator import HomographyEstimator
 
-ref_img = cv2.imread("ref.png")
+# Load reference image and create a HomographyEstimator instance
+ref_img = cv2.imread("ref_img/3.png")
 h_estimator = HomographyEstimator(ref_img)
 
-# Mask Pick
+# Apply masks to the reference image
 mask = np.ones(ref_img.shape[:2], dtype="uint8") * 255
-mask = cv2.rectangle(mask, (360, 170), (640, 360), color=(0, 0, 0), thickness=-1)
+mask = cv2.rectangle(mask, (275, 250), (400, 400), color=(0, 0, 0), thickness=-1)
 mask = cv2.rectangle(mask, (580, 0), (640, 480), color=(0, 0, 0), thickness=-1)
 ref_img = cv2.bitwise_and(ref_img, ref_img, mask=mask)
 
 
 def decompose_homography(h, A, A_inv):
+    """
+    Decomposes the homography matrix to estimate the translation vector.
+    
+    Parameters:
+    - h: Homography matrix.
+    - A: Camera intrinsic matrix.
+    - A_inv: Inverse of the camera intrinsic matrix.
+    
+    Returns:
+    - Translation vector as a NumPy array.
+    """
     f = np.array([A[0, 0], A[1, 1]])
     c = np.array([A[0, 2], A[1, 2], -f.mean()])
     h = h.T
@@ -33,11 +45,10 @@ def decompose_homography(h, A, A_inv):
     _t = _l * np.dot(A_inv, h3).flatten()
     _t += c
     _t /= 2
-    # change scale
-    _t[0] *= 10 / 9
+    # change scalemove_arm
     return _t
 
-
+# Camera initialization and calibration setup
 W = 640
 H = 480
 calibrator = Calibrator(W, H, True)
@@ -46,13 +57,26 @@ cam = RealSenseCamera(W, H, calibrator)
 K = calibrator.calibration_matrix
 K_inv = np.linalg.inv(K)
 
-# P control
+# P control params
 CALIB_TARGET = np.array((0, 0, 200))  # Const : set physically when ref img is shot
-target = np.array((0, 0, 182))  # 182
-kp = np.array([0.01, 0, 0.01])
+target = np.array((0, 0, 182))  # 182 Target position
+kp = np.array([0.01, 0, 0.01]) # Proportional control gains
+
 
 
 def get_traj_pt(_i, freq=0.75, amp=25, phase=0):
+    """
+    Calculates a trajectory point for the arm movement.
+    
+    Parameters:
+    - _i: Time index.
+    - freq: Frequency of the sine wave.
+    - amp: Amplitude of the sine wave.
+    - phase: Phase shift of the sine wave.
+    
+    Returns:
+    - Trajectory point.
+    """
     return amp * np.sin(2 * np.pi * freq * _i + phase) + 4
 
 
@@ -85,31 +109,43 @@ def move_arm(stop_arg, err_arg):
     arm.set_position(*initial_pose, speed=100, mvacc=300, wait=True, is_radian=False)
 
 
+# Manager for shared values between processes for the arm
 manager = Manager()
 STOP = manager.Value('STOP', False)
 err = manager.Value('err', np.array([0, 0, 0]))
 
-# if __name__ == '__main__':
-p = Process(target=move_arm, args=(STOP, err))
-p.start()
-while True:
-    frame = cam.read_frame()
-    if frame is None:
-        continue
-    frame = cv2.bitwise_and(frame, frame, mask=mask)
-    M = h_estimator.estimate(frame)
-    if M is not None:
-        gtr_pos = decompose_homography(M, K, K_inv)
-        print(gtr_pos)
-        err.value = target - (CALIB_TARGET + gtr_pos)
-        M = np.linalg.inv(M)
-        dst = cv2.warpPerspective(frame, M, (W, H))
-        cv2.imshow("output", dst)
+if __name__ == '__main__':
+    p = Process(target=move_arm, args=(STOP, err))
+    p.start()
 
-    if cv2.waitKey(1) == ord('q'):
-        break
+    while True:
+        frame = cam.read_frame()
+        if frame is None:
+            continue
+        # Apply mask to the current frame
+        frame = cv2.bitwise_and(frame, frame, mask=mask)
 
-STOP.value = True
-cv2.destroyAllWindows()
-cam.stop()
-p.join()
+        # Estimate homography matrix
+        M = h_estimator.estimate(frame)
+        if M is not None:
+            # Decompose homography to get the translation vector
+            gtr_pos = decompose_homography(M, K, K_inv)
+            print(gtr_pos[2])
+
+            # Calculate error
+            err.value = target - (CALIB_TARGET + gtr_pos)
+
+            # Warp the perspective based on the homography matrix
+            M = np.linalg.inv(M)
+            dst = cv2.warpPerspective(frame, M, (W, H))
+            cv2.imshow("output", dst)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+    STOP.value = True
+
+    cv2.destroyAllWindows()
+    cam.stop()
+
+    p.join()
